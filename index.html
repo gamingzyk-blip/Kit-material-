@@ -41,6 +41,7 @@ nav .sbtn{flex:0 0 48px;display:flex;align-items:center;justify-content:center}
 .sp{justify-content:space-between}
 .name{font-weight:700;font-size:18px}
 .sub{color:var(--mute);font-size:14px}
+.ok{color:var(--pos);font-size:14px;font-weight:600}
 .saldo{font-size:34px;font-weight:800;line-height:1;color:var(--pos)}
 .saldo.neg{color:var(--neg)}
 input{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px;min-width:0}
@@ -50,6 +51,7 @@ input:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px
 .btn.sec{background:none;color:var(--mute);border:1px solid var(--line)}
 .btn.danger{background:var(--neg);color:#fff}
 .btn:disabled{opacity:.4;cursor:default}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .use{margin-top:12px}
 .obs{margin-top:10px}
 .obs label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
@@ -77,21 +79,37 @@ details .row{margin-top:10px;flex-wrap:wrap}
 <div id="view"></div>
 </main>
 <script>
-var KEY="kit-v2",S={items:[]},tab="kit",armed=null,q="",aberta=false;
+var KEY="kit-v2",S={items:[]},tab="kit",armed=null,q="",aberta=false,M="";
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function fix(D){
+  if(!D||!Array.isArray(D.items))return {items:[]};
+  D.items=D.items.filter(function(it){return it&&it.name}).map(function(it){
+    var u=[];
+    if(Array.isArray(it.uses))it.uses.forEach(function(x){
+      u.push(typeof x==="string"?{o:x,t:0,n:1}:{o:String(x&&x.o||""),t:+(x&&x.t)||0,n:Math.max(1,parseInt(x&&x.n,10)||1)});
+    });
+    else for(var i=0;i<(it.used||0);i++)u.push({o:i===0?(it.obs||""):"",t:0,n:1});
+    return {id:it.id||uid(),name:String(it.name),std:Math.max(1,parseInt(it.std,10)||1),uses:u};
+  });
+  return D;
+}
 try{var raw=localStorage.getItem(KEY);if(raw)S=JSON.parse(raw)}catch(e){}
-S.items.forEach(function(it){if(!it.uses){it.uses=[];for(var i=0;i<(it.used||0);i++)it.uses.push(i===0?(it.obs||""):"")}delete it.used;delete it.obs});
+S=fix(S);
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
-function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function find(id){return S.items.find(function(i){return i.id===id})}
-function nu(it){return it.uses.length}
+function nu(it){return it.uses.reduce(function(a,u){return a+u.n},0)}
 function sal(it){return nu(it)>0?'−'+nu(it):'OK'}
+function p2(n){return("0"+n).slice(-2)}
+function fd(t){if(!t)return"";var d=new Date(t);return p2(d.getDate())+"/"+p2(d.getMonth()+1)+"/"+d.getFullYear()+" "+p2(d.getHours())+":"+p2(d.getMinutes())}
 function norm(s){return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
 function ord(){return S.items.slice().sort(function(a,b){return a.name.localeCompare(b.name,"pt",{sensitivity:"base"})})}
 function lista(){
   var k=norm(q.trim());
   return ord().filter(function(i){return !k||norm(i.name).indexOf(k)>-1});
 }
+function usados(){return ord().filter(function(i){return nu(i)>0})}
+function lnUso(u,i){return(i+1)+". "+(u.t?fd(u.t)+" - ":"")+(u.n>1?u.n+" un - ":"")+(String(u.o).trim()||"(sem observação)")}
 
 function render(){
   var b=document.querySelectorAll("#tabs button[data-t]");
@@ -113,11 +131,12 @@ function vKit(){
     var k=nu(it),n=k>0;
     h+='<div class="card'+(n?' neg':'')+'"><div class="row sp"><div><div class="name">'+esc(it.name)+'</div>'+
       '<div class="sub">Restam '+(it.std-k)+' de '+it.std+'</div></div><div class="saldo'+(n?' neg':'')+'">'+sal(it)+'</div></div>'+
-      '<div class="row use"><button class="btn" onclick="mv(\''+it.id+'\',1)">Usei 1</button>'+
-      '<button class="btn sec" onclick="mv(\''+it.id+'\',-1)"'+(n?'':' disabled')+'>Desfazer</button></div>';
-    it.uses.forEach(function(o,i){
-      h+='<div class="obs"><label>Uso '+(i+1)+' · onde foi usado?</label>'+
-        '<textarea id="o-'+it.id+'-'+i+'" rows="3" placeholder="Ex.: local, cliente, equipamento..." oninput="obs(\''+it.id+'\','+i+',this.value)">'+esc(o)+'</textarea></div>';
+      '<div class="row use"><input class="q" id="u-'+it.id+'" type="number" inputmode="numeric" min="1" value="1" aria-label="Quantidade usada">'+
+      '<button class="btn f" onclick="mv(\''+it.id+'\',1)">Usei</button>'+
+      '<button class="btn sec" onclick="mv(\''+it.id+'\',-1)"'+(it.uses.length?'':' disabled')+'>Desfazer</button></div>';
+    it.uses.forEach(function(u,i){
+      h+='<div class="obs"><label>Uso '+(i+1)+(u.n>1?' · '+u.n+' un':'')+(u.t?' · '+fd(u.t):'')+'</label>'+
+        '<textarea id="o-'+it.id+'-'+i+'" rows="3" placeholder="Onde foi usado? (local, cliente, equipamento...)" oninput="obs(\''+it.id+'\','+i+',this.value)">'+esc(u.o)+'</textarea></div>';
     });
     h+='</div>';
   });
@@ -131,7 +150,7 @@ function vRepor(){
   var L=lista();
   if(!L.length)return h+'<div class="empty">Nenhum item encontrado.</div>';
   L.forEach(function(it){
-    var n=nu(it)>0,ob=it.uses.filter(Boolean).map(esc).join(" · ");
+    var n=nu(it)>0,ob=it.uses.map(function(u){return esc(u.o.trim())}).filter(Boolean).join(" · ");
     h+='<div class="card"><div class="row sp"><div><div class="name">'+esc(it.name)+'</div>'+
       '<div class="sub">'+(n?(ob||"Sem observação"):"Completo")+'</div></div><div class="saldo'+(n?' neg':'')+'">'+sal(it)+'</div></div>'+
       '<div class="row use"><button class="btn f"'+(n?'':' disabled')+' onclick="repor(\''+it.id+'\')">Repor</button>'+
@@ -139,6 +158,32 @@ function vRepor(){
       '<button class="btn '+(armed===it.id?'danger':'sec')+'" onclick="del(\''+it.id+'\')">'+(armed===it.id?'Confirmar':'Excluir')+'</button></div></div>';
   });
   return h+'<p class="sub">O campo numérico é a quantidade padrão do item no kit.</p>';
+}
+
+function vRel(){
+  var U=usados(),tot=U.reduce(function(a,i){return a+nu(i)},0),off=U.length?'':' disabled';
+  var h=(M?'<p class="ok">'+esc(M)+'</p>':'')+
+    '<div class="card"><label class="sub" for="rt">Título do relatório (opcional)</label>'+
+    '<input id="rt" style="width:100%;margin-top:6px" placeholder="Ex.: obra, cliente ou data" value="'+esc(S.titulo||"")+'" oninput="S.titulo=this.value;save()">'+
+    '<button class="btn" style="width:100%;margin-top:12px"'+off+' onclick="gerarPDF()">Gerar PDF do relatório</button>'+
+    '<div class="grid2"><button class="btn sec"'+off+' onclick="gerarLista()">Lista de reposição</button>'+
+    '<button class="btn sec"'+off+' onclick="zap()">WhatsApp</button>'+
+    '<button class="btn sec" style="grid-column:1/-1"'+off+' onclick="copiar()">Copiar texto do relatório</button></div></div>';
+  if(!U.length)h+='<div class="empty">Nenhum material usado no momento.</div>';
+  else{
+    h+='<p class="sub">'+U.length+' item(ns) · '+tot+' un no relatório</p>';
+    U.forEach(function(it){
+      h+='<div class="card neg"><div class="row sp"><div class="name">'+esc(it.name)+'</div><div class="saldo neg">'+sal(it)+'</div></div>';
+      it.uses.forEach(function(u,i){h+='<div class="ln">'+esc(lnUso(u,i))+'</div>'});
+      h+='</div>';
+    });
+  }
+  h+='<div class="card"><div class="name" style="font-size:16px">Backup dos dados</div>'+
+    '<p class="sub" style="margin:4px 0 0">Guarde uma cópia do kit para não perder tudo se trocar de celular ou limpar o navegador.</p>'+
+    '<div class="grid2"><button class="btn sec" onclick="backup()">Salvar backup</button>'+
+    '<button class="btn sec" onclick="document.getElementById(\'bk\').click()">Restaurar backup</button></div>'+
+    '<input type="file" id="bk" accept=".json,application/json,text/plain" style="display:none" onchange="restaurar(this)"></div>';
+  return h;
 }
 
 function enc(s){
@@ -197,7 +242,7 @@ function pdfBytes(pages){
   for(i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&255;
   return u;
 }
-function montarPDF(U,titulo){
+function mkdoc(head,titulo,resumo,fill){
   var pages=[],cur="",y=790,L=50,W=495;
   function nova(){pages.push(cur);cur="";y=790}
   function lin(txt,b,sz,x,extra){
@@ -205,53 +250,84 @@ function montarPDF(U,titulo){
     cur+="BT /F"+(b?2:1)+" "+sz+" Tf "+x+" "+y.toFixed(1)+" Td ("+enc(txt)+") Tj ET\n";
     y-=sz*1.35+(extra||0);
   }
-  function par(txt,b,sz,x,extra){
-    var ls=quebra(txt,sz,b,W-(x-L));
-    ls.forEach(function(l,i){lin(l,b,sz,x,i===ls.length-1?extra:0)});
-  }
-  var tot=U.reduce(function(a,i){return a+nu(i)},0);
-  par("Materiais usados",true,20,L,4);
-  if(titulo&&titulo.trim())par(titulo.trim(),true,13,L,2);
-  par("Gerado em "+new Date().toLocaleString("pt-BR")+"  |  "+U.length+" item(ns), "+tot+" uso(s)",false,10,L,14);
-  U.forEach(function(it){
-    if(y<130)nova();
-    par(it.name+"  (-"+nu(it)+" de "+it.std+")",true,13,L,3);
-    it.uses.forEach(function(o,i){par((i+1)+". "+(String(o).trim()||"(sem observação)"),false,11,L+14,2)});
-    y-=10;
-  });
+  var d={L:L,
+    par:function(txt,b,sz,x,extra){
+      var ls=quebra(txt,sz,b,W-(x-L));
+      ls.forEach(function(l,i){lin(l,b,sz,x,i===ls.length-1?extra:0)});
+    },
+    need:function(v){if(y<v)nova()},
+    gap:function(v){y-=v}
+  };
+  d.par(head,true,20,L,4);
+  if(titulo&&titulo.trim())d.par(titulo.trim(),true,13,L,2);
+  d.par(resumo,false,10,L,14);
+  fill(d);
   pages.push(cur);
   var n=pages.length;
   pages=pages.map(function(p,i){return p+"BT /F1 9 Tf "+L+" 30 Td ("+enc("Página "+(i+1)+" de "+n)+") Tj ET\n"});
   return pdfBytes(pages);
 }
-
-function usados(){return ord().filter(function(i){return nu(i)>0})}
-function vRel(){
-  var U=usados(),tot=U.reduce(function(a,i){return a+nu(i)},0);
-  var h='<div class="card"><label class="sub" for="rt">Título do relatório (opcional)</label>'+
-    '<input id="rt" style="width:100%;margin-top:6px" placeholder="Ex.: obra, cliente ou data" value="'+esc(S.titulo||"")+'" oninput="S.titulo=this.value;save()">'+
-    '<button class="btn" style="width:100%;margin-top:12px"'+(U.length?'':' disabled')+' onclick="gerarPDF()">Gerar PDF</button></div>';
-  if(!U.length)return h+'<div class="empty">Nenhum material usado no momento.</div>';
-  h+='<p class="sub">'+U.length+' item(ns) · '+tot+' uso(s) no relatório</p>';
-  U.forEach(function(it){
-    h+='<div class="card neg"><div class="row sp"><div class="name">'+esc(it.name)+'</div><div class="saldo neg">'+sal(it)+'</div></div>';
-    it.uses.forEach(function(o,i){h+='<div class="ln">'+(i+1)+'. '+(String(o).trim()?esc(o):'<span class="sub">(sem observação)</span>')+'</div>'});
-    h+='</div>';
+function montarPDF(U,titulo){
+  var tot=U.reduce(function(a,i){return a+nu(i)},0);
+  return mkdoc("Materiais usados",titulo,"Gerado em "+fd(Date.now())+"  |  "+U.length+" item(ns), "+tot+" un",function(d){
+    U.forEach(function(it){
+      d.need(130);
+      d.par(it.name+"  (-"+nu(it)+" de "+it.std+")",true,13,d.L,3);
+      it.uses.forEach(function(u,i){d.par(lnUso(u,i),false,11,d.L+14,2)});
+      d.gap(10);
+    });
   });
-  return h;
 }
-function gerarPDF(){
-  var U=usados();if(!U.length)return;
-  var bytes=montarPDF(U,S.titulo||"");
-  var nome="materiais-usados-"+new Date().toISOString().slice(0,10)+".pdf";
-  var blob=new Blob([bytes],{type:"application/pdf"});
+function montarLista(U,titulo){
+  var tot=U.reduce(function(a,i){return a+nu(i)},0);
+  return mkdoc("Lista de reposição",titulo,"Gerado em "+fd(Date.now())+"  |  "+U.length+" item(ns), "+tot+" un a repor",function(d){
+    U.forEach(function(it){
+      d.par("[    ]  "+it.name+"  -  repor "+nu(it)+" (padrão "+it.std+")",false,12,d.L,8);
+    });
+  });
+}
+function textoRel(U){
+  var s="*Materiais usados*"+(S.titulo&&S.titulo.trim()?" - "+S.titulo.trim():"")+"\n"+fd(Date.now())+"\n";
+  U.forEach(function(it){
+    s+="\n*"+it.name+"* (-"+nu(it)+" de "+it.std+")\n";
+    it.uses.forEach(function(u,i){s+=lnUso(u,i)+"\n"});
+  });
+  return s;
+}
+function hoje(){return new Date().toISOString().slice(0,10)}
+function salvar(bytes,nome,tipo,titulo){
+  var blob=new Blob([bytes],{type:tipo});
   try{
-    var f=new File([blob],nome,{type:"application/pdf"});
-    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:"Materiais usados"}).catch(function(){});return}
+    var f=new File([blob],nome,{type:tipo});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:titulo}).catch(function(){});return}
   }catch(e){}
   var u=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();
   setTimeout(function(){URL.revokeObjectURL(u)},10000);
+}
+function gerarPDF(){var U=usados();if(U.length)salvar(montarPDF(U,S.titulo||""),"materiais-usados-"+hoje()+".pdf","application/pdf","Materiais usados")}
+function gerarLista(){var U=usados();if(U.length)salvar(montarLista(U,S.titulo||""),"lista-reposicao-"+hoje()+".pdf","application/pdf","Lista de reposição")}
+function zap(){var U=usados();if(U.length)window.open("https://wa.me/?text="+encodeURIComponent(textoRel(U)),"_blank")}
+function msg(t){M=t;render()}
+function copiar(){
+  var U=usados();if(!U.length)return;
+  try{navigator.clipboard.writeText(textoRel(U)).then(function(){msg("Texto copiado. É só colar na conversa.")},function(){msg("Não consegui copiar neste aparelho.")})}
+  catch(e){msg("Não consegui copiar neste aparelho.")}
+}
+function backup(){
+  salvar(new TextEncoder().encode(JSON.stringify(S)),"kit-backup-"+hoje()+".json","application/json","Backup do Kit");
+  msg("Backup gerado. Guarde o arquivo em um lugar seguro.");
+}
+function restaurar(inp){
+  var f=inp.files&&inp.files[0];if(!f)return;
+  var r=new FileReader();
+  r.onload=function(){
+    try{
+      var D=JSON.parse(r.result);if(!D||!Array.isArray(D.items))throw 0;
+      S=fix(D);save();msg("Backup restaurado: "+S.items.length+" item(ns).");
+    }catch(e){msg("Arquivo inválido. Escolha um arquivo de backup do Kit.")}
+  };
+  r.readAsText(f);
 }
 
 function addItem(){
@@ -261,11 +337,15 @@ function addItem(){
 }
 function mv(id,d){
   var it=find(id);if(!it)return;
-  if(d>0)it.uses.push("");else it.uses.pop();
+  if(d>0){
+    var e=document.getElementById("u-"+id),n=parseInt(e&&e.value,10);
+    if(!n||n<1)n=1;
+    it.uses.push({o:"",t:Date.now(),n:n});
+  }else it.uses.pop();
   save();render();
   if(d>0){var el=document.getElementById("o-"+id+"-"+(it.uses.length-1));if(el)el.focus()}
 }
-function obs(id,i,v){var it=find(id);if(it){it.uses[i]=v;save()}}
+function obs(id,i,v){var it=find(id);if(it&&it.uses[i]){it.uses[i].o=v;save()}}
 function repor(id){var it=find(id);if(!it)return;it.uses=[];save();render()}
 function reporTudo(){S.items.forEach(function(i){i.uses=[]});save();render()}
 function setStd(id,v){var it=find(id),n=parseInt(v,10);if(!it||!n||n<1)return;it.std=n;save();render()}
@@ -273,7 +353,7 @@ function del(id){
   if(armed!==id){armed=id;render();return}
   S.items=S.items.filter(function(i){return i.id!==id});armed=null;save();render();
 }
-function go(t){tab=t;armed=null;render();window.scrollTo(0,0)}
+function go(t){tab=t;armed=null;M="";render();window.scrollTo(0,0)}
 function setQ(v){q=v;render()}
 function toggleBusca(){
   aberta=!aberta;
