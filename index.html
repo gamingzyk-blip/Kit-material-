@@ -55,6 +55,7 @@ input:focus,button:focus-visible{outline:2px solid var(--acc);outline-offset:1px
 .obs label{display:block;font-size:13px;color:var(--mute);margin-bottom:4px}
 textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:10px;min-height:76px;resize:vertical}
 textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
+.ln{margin-top:6px;font-size:15px;white-space:pre-wrap;word-break:break-word}
 .empty{color:var(--mute);text-align:center;padding:24px 8px}
 details summary{cursor:pointer;font-weight:700}
 details .row{margin-top:10px;flex-wrap:wrap}
@@ -69,6 +70,7 @@ details .row{margin-top:10px;flex-wrap:wrap}
 <nav id="tabs">
 <button data-t="kit" class="on">Kit</button>
 <button data-t="repor">Repor</button>
+<button data-t="rel">Relatório</button>
 <button class="sbtn" id="sbtn" onclick="toggleBusca()" aria-label="Buscar equipamento"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-5-5"/></svg></button>
 </nav>
 <div id="sbar"><input id="sq" type="search" placeholder="Buscar equipamento..." oninput="setQ(this.value)" autocomplete="off"></div>
@@ -85,10 +87,10 @@ function find(id){return S.items.find(function(i){return i.id===id})}
 function nu(it){return it.uses.length}
 function sal(it){return nu(it)>0?'−'+nu(it):'OK'}
 function norm(s){return String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
+function ord(){return S.items.slice().sort(function(a,b){return a.name.localeCompare(b.name,"pt",{sensitivity:"base"})})}
 function lista(){
   var k=norm(q.trim());
-  return S.items.slice().sort(function(a,b){return a.name.localeCompare(b.name,"pt",{sensitivity:"base"})})
-    .filter(function(i){return !k||norm(i.name).indexOf(k)>-1});
+  return ord().filter(function(i){return !k||norm(i.name).indexOf(k)>-1});
 }
 
 function render(){
@@ -97,7 +99,7 @@ function render(){
   var c=S.items.filter(function(i){return nu(i)>0}).length;
   document.getElementById("alert").className="alert"+(c?" on":"");
   document.getElementById("cnt").textContent=c;
-  document.getElementById("view").innerHTML=tab==="kit"?vKit():vRepor();
+  document.getElementById("view").innerHTML=tab==="kit"?vKit():tab==="repor"?vRepor():vRel();
 }
 
 function vKit(){
@@ -137,6 +139,119 @@ function vRepor(){
       '<button class="btn '+(armed===it.id?'danger':'sec')+'" onclick="del(\''+it.id+'\')">'+(armed===it.id?'Confirmar':'Excluir')+'</button></div></div>';
   });
   return h+'<p class="sub">O campo numérico é a quantidade padrão do item no kit.</p>';
+}
+
+function enc(s){
+  s=String(s).normalize("NFC").replace(/[\u2212\u2013\u2014]/g,"-").replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"').replace(/\u2026/g,"...").replace(/[\r\n\t]+/g," ");
+  var r="";
+  for(var i=0;i<s.length;i++){
+    var c=s.charCodeAt(i);
+    if(c===40||c===41||c===92)r+="\\"+s[i];
+    else if(c>=32&&c<127)r+=s[i];
+    else if(c>=160&&c<256)r+="\\"+("00"+c.toString(8)).slice(-3);
+    else r+="?";
+  }
+  return r;
+}
+function cw(c){
+  if("il.,;:'|!jI ".indexOf(c)>-1)return .28;
+  if("fr()-t[]\"".indexOf(c)>-1)return .36;
+  if("mwMW@%".indexOf(c)>-1)return .85;
+  if(c>="A"&&c<="Z")return .68;
+  return .53;
+}
+function tw(s,sz,b){var w=0;for(var i=0;i<s.length;i++)w+=cw(s[i]);return w*sz*(b?1.07:1)}
+function quebra(txt,sz,b,max){
+  var out=[],cur="";
+  String(txt).replace(/[\r\n\t]+/g," ").split(" ").forEach(function(w){
+    if(!w)return;
+    while(tw(w,sz,b)>max){
+      var k=1;while(k<w.length&&tw(w.slice(0,k+1),sz,b)<=max)k++;
+      if(cur){out.push(cur);cur=""}
+      out.push(w.slice(0,k));w=w.slice(k);
+    }
+    var t=cur?cur+" "+w:w;
+    if(tw(t,sz,b)<=max)cur=t;else{out.push(cur);cur=w}
+  });
+  if(cur||!out.length)out.push(cur);
+  return out;
+}
+function pdfBytes(pages){
+  var o=[],n=pages.length,kids=[],i;
+  for(i=0;i<n;i++)kids.push((5+2*i)+" 0 R");
+  o[1]="<< /Type /Catalog /Pages 2 0 R >>";
+  o[2]="<< /Type /Pages /Kids ["+kids.join(" ")+"] /Count "+n+" >>";
+  o[3]="<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  o[4]="<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
+  for(i=0;i<n;i++){
+    o[5+2*i]="<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents "+(6+2*i)+" 0 R >>";
+    o[6+2*i]="<< /Length "+pages[i].length+" >>\nstream\n"+pages[i]+"\nendstream";
+  }
+  var s="%PDF-1.4\n",off=[];
+  for(i=1;i<o.length;i++){off[i]=s.length;s+=i+" 0 obj\n"+o[i]+"\nendobj\n"}
+  var x=s.length;
+  s+="xref\n0 "+o.length+"\n0000000000 65535 f \n";
+  for(i=1;i<o.length;i++)s+=("0000000000"+off[i]).slice(-10)+" 00000 n \n";
+  s+="trailer\n<< /Size "+o.length+" /Root 1 0 R >>\nstartxref\n"+x+"\n%%EOF";
+  var u=new Uint8Array(s.length);
+  for(i=0;i<s.length;i++)u[i]=s.charCodeAt(i)&255;
+  return u;
+}
+function montarPDF(U,titulo){
+  var pages=[],cur="",y=790,L=50,W=495;
+  function nova(){pages.push(cur);cur="";y=790}
+  function lin(txt,b,sz,x,extra){
+    if(y<70)nova();
+    cur+="BT /F"+(b?2:1)+" "+sz+" Tf "+x+" "+y.toFixed(1)+" Td ("+enc(txt)+") Tj ET\n";
+    y-=sz*1.35+(extra||0);
+  }
+  function par(txt,b,sz,x,extra){
+    var ls=quebra(txt,sz,b,W-(x-L));
+    ls.forEach(function(l,i){lin(l,b,sz,x,i===ls.length-1?extra:0)});
+  }
+  var tot=U.reduce(function(a,i){return a+nu(i)},0);
+  par("Materiais usados",true,20,L,4);
+  if(titulo&&titulo.trim())par(titulo.trim(),true,13,L,2);
+  par("Gerado em "+new Date().toLocaleString("pt-BR")+"  |  "+U.length+" item(ns), "+tot+" uso(s)",false,10,L,14);
+  U.forEach(function(it){
+    if(y<130)nova();
+    par(it.name+"  (-"+nu(it)+" de "+it.std+")",true,13,L,3);
+    it.uses.forEach(function(o,i){par((i+1)+". "+(String(o).trim()||"(sem observação)"),false,11,L+14,2)});
+    y-=10;
+  });
+  pages.push(cur);
+  var n=pages.length;
+  pages=pages.map(function(p,i){return p+"BT /F1 9 Tf "+L+" 30 Td ("+enc("Página "+(i+1)+" de "+n)+") Tj ET\n"});
+  return pdfBytes(pages);
+}
+
+function usados(){return ord().filter(function(i){return nu(i)>0})}
+function vRel(){
+  var U=usados(),tot=U.reduce(function(a,i){return a+nu(i)},0);
+  var h='<div class="card"><label class="sub" for="rt">Título do relatório (opcional)</label>'+
+    '<input id="rt" style="width:100%;margin-top:6px" placeholder="Ex.: obra, cliente ou data" value="'+esc(S.titulo||"")+'" oninput="S.titulo=this.value;save()">'+
+    '<button class="btn" style="width:100%;margin-top:12px"'+(U.length?'':' disabled')+' onclick="gerarPDF()">Gerar PDF</button></div>';
+  if(!U.length)return h+'<div class="empty">Nenhum material usado no momento.</div>';
+  h+='<p class="sub">'+U.length+' item(ns) · '+tot+' uso(s) no relatório</p>';
+  U.forEach(function(it){
+    h+='<div class="card neg"><div class="row sp"><div class="name">'+esc(it.name)+'</div><div class="saldo neg">'+sal(it)+'</div></div>';
+    it.uses.forEach(function(o,i){h+='<div class="ln">'+(i+1)+'. '+(String(o).trim()?esc(o):'<span class="sub">(sem observação)</span>')+'</div>'});
+    h+='</div>';
+  });
+  return h;
+}
+function gerarPDF(){
+  var U=usados();if(!U.length)return;
+  var bytes=montarPDF(U,S.titulo||"");
+  var nome="materiais-usados-"+new Date().toISOString().slice(0,10)+".pdf";
+  var blob=new Blob([bytes],{type:"application/pdf"});
+  try{
+    var f=new File([blob],nome,{type:"application/pdf"});
+    if(navigator.canShare&&navigator.canShare({files:[f]})){navigator.share({files:[f],title:"Materiais usados"}).catch(function(){});return}
+  }catch(e){}
+  var u=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=u;a.download=nome;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(function(){URL.revokeObjectURL(u)},10000);
 }
 
 function addItem(){
